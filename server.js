@@ -18,7 +18,7 @@ app.use(
   helmet({
     frameguard: {
       // configure
-      action: 'deny',
+      action: 'sameorigin',
     },
     referrerPolicy: { policy: 'same-origin' },
     contentSecurityPolicy: {
@@ -28,13 +28,13 @@ app.use(
         styleSrc: ['style.com'],
       },
     },
-    dnsPrefetchControl: false, // disable,
+    dnsPrefetchControl: true, // disable,
   })
 );
 
 app.use('/public', express.static(process.cwd() + '/public'));
 
-app.use(cors({ origin: '*' })); //For FCC testing purposes only
+app.use(cors()); //For FCC testing purposes only
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));

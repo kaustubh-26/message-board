@@ -13,10 +13,14 @@ module.exports = function (app) {
       if (!board) {
         board = req.params.board;
       }
+      const dateTime = new Date().toISOString();
       console.log('post', req.body);
       const newThread = new ThreadModel({
         text: text,
         delete_password: delete_password,
+        created_on: dateTime,
+        bumped_on: dateTime,
+        reported: false,
         replies: [],
       });
       // console.log('newThread', newThread);
@@ -30,11 +34,11 @@ module.exports = function (app) {
         });
         // console.log('newBoard', newBoard);
         newBoard.threads.push(newThread);
-        newBoard.save();
+        await newBoard.save();
         res.json(newThread);
       } else {
         data.threads.push(newThread);
-        data.save();
+        await data.save();
         res.json(newThread);
       }
     })
@@ -43,50 +47,41 @@ module.exports = function (app) {
       const data = await BoardModel.findOne({ name: board });
 
       if (!data) {
-        console.log('No board with this name');
         res.json({ error: 'No board with this name' });
       } else {
-        console.log('data', data);
-        const threads = data.threads.map((thread) => {
-          const {
-            _id,
-            text,
-            created_on,
-            bumped_on,
-            reported,
-            delete_password,
-            replies,
-          } = thread;
-          // console.log('replies::', replies);
+        const threads = data.threads.slice(0, 10).map((thread) => {
+          const { _id, text, created_on, bumped_on, replies } = thread;
+          const recentReplies = replies.slice(-3).map((reply) => ({
+            _id: reply._id,
+            text: reply.text,
+            created_on: reply.created_on,
+          }));
           return {
             _id,
             text,
             created_on,
             bumped_on,
-            reported,
-            delete_password,
-            replies,
-            replycount: replies.length,
+            replies: recentReplies,
           };
         });
         res.json(threads);
       }
     })
     .put(async (req, res) => {
-      // console.log('put', req.body);
-      const { report_id } = req.body;
+      const { thread_id } = req.body;
       const board = req.params.board;
       const data = await BoardModel.findOne({ name: board });
-
+      console.log('thread_id:', thread_id);
+      console.log('board:', board);
+      console.log('data:', board);
       if (!data) {
-        res.json({ error: 'Board not found' });
+        res.json({ error: 'No board with this name' });
       } else {
-        const date = new Date();
-        let reportedThread = data.threads.id(report_id);
-        reportedThread.reported = true;
-        reportedThread.bumped_on = date;
-        data.save();
-        res.send('Data Updated Successfully');
+        const thread = data.threads.id(thread_id);
+        console.log('thread::', thread);
+        thread.reported = true; // Change the reported value of the thread
+        await data.save();
+        res.send('reported');
       }
     })
     .delete(async (req, res) => {
@@ -104,11 +99,11 @@ module.exports = function (app) {
           threadToDelete.deleteOne();
           // threadToDelete.remove();
         } else {
-          res.send('Invalid Password');
+          res.send('incorrect password');
           return;
         }
-        data.save();
-        res.send('Deleted Thread');
+        await data.save();
+        res.send('success');
       }
     });
 
@@ -117,21 +112,30 @@ module.exports = function (app) {
     .post(async (req, res) => {
       const { thread_id, text, delete_password } = req.body;
       const board = req.params.board;
+      const dateTime = new Date(); // Get the current date and time
+      const replyName = `fcc_test_reply_${dateTime.toISOString()}`; // Create a unique reply name based on the current date and time
       const newReply = new ReplyModel({
         text: text,
+        created_on: dateTime,
+        reported: false,
         delete_password: delete_password,
+        name: replyName, // Assign the reply name
       });
       const data = await BoardModel.findOne({ name: board });
 
       if (!data) {
         res.json({ error: 'Board not found' });
       } else {
-        const date = new Date();
-        let threadToAddReply = data.threads.id(thread_id);
-        threadToAddReply.bumped_on = date;
-        threadToAddReply.replies.push(newReply);
-        data.save();
-        res.json(data);
+        const thread = data.threads.id(thread_id);
+        if (!thread) {
+          res.json({ error: 'Thread not found' });
+        } else {
+          thread.replies.push(newReply);
+          thread.bumped_on = dateTime;
+          let saved = await data.save();
+          console.log('saved::::', saved);
+          res.json(saved);
+        }
       }
     })
     .get(async (req, res) => {
@@ -141,7 +145,19 @@ module.exports = function (app) {
         res.json({ error: 'No board with this name' });
       } else {
         const thread = data.threads.id(req.query.thread_id);
-        res.json(thread);
+        const { _id, text, created_on, bumped_on, replies } = thread;
+        const allReplies = replies.map((reply) => ({
+          _id: reply._id,
+          text: reply.text,
+          created_on: reply.created_on,
+        }));
+        res.json({
+          _id,
+          text,
+          created_on,
+          bumped_on,
+          replies: allReplies,
+        });
       }
     })
     .put(async (req, res) => {
@@ -152,12 +168,10 @@ module.exports = function (app) {
         res.json({ error: 'No board with this name' });
       } else {
         const thread = data.threads.id(thread_id);
-        // console.log('put:->', thread);
         const reply = thread.replies.id(reply_id);
-        reply.reported = true;
-        reply.bumped_on = new Date();
-        data.save();
-        res.send('Data updated Successfully');
+        reply.reported = true; // Change the reported value of the reply
+        await data.save();
+        res.send('reported');
       }
     })
     .delete(async (req, res) => {
@@ -167,21 +181,15 @@ module.exports = function (app) {
       if (!data) {
         res.json({ error: 'No board with this name' });
       } else {
-        // console.log('thread_id::::', thread_id);
-        // console.log('reply_id::::', reply_id, delete_password);
         const thread = data.threads.id(thread_id);
         const reply = thread.replies.id(reply_id);
-        let message = '';
         if (reply.delete_password === delete_password) {
-          reply.deleteOne();
-          message = 'Data deleted Successfully';
+          reply.text = '[deleted]'; // Change the text of the reply to '[deleted]'
+          await data.save();
+          res.send('success');
         } else {
-          message = 'Invalid password';
+          res.send('incorrect password');
         }
-        if (message === 'Data deleted Successfully') {
-          data.save();
-        }
-        res.send(message);
       }
     });
 };
